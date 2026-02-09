@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Framework-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-Frontend-61DAFB?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-336791?logo=postgresql&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Agentic_Workflows-orange)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker&logoColor=white)
@@ -122,3 +123,7 @@ The agent will automatically discover the new skill on the next restart.
 ```bash
 uv run pytest
 ```
+<img width="3838" height="1953" alt="Screenshot 2026-02-09 110412" src="https://github.com/user-attachments/assets/5c194137-b246-426e-9e5a-6505f6026b82" />
+<img width="3838" height="1937" alt="2" src="https://github.com/user-attachments/assets/f10e5da4-a062-4076-ab2e-2d85f838ae1c" />
+<img width="3836" height="1926" alt="3" src="https://github.com/user-attachments/assets/e0829643-ce8e-4045-a000-e50618cd3785" />
+
