@@ -144,37 +144,12 @@ def run_interactive_session():
                             print("\n".join(lines))
                             print("\n" + "=" * 84)
 
-                        # IMPORTANT: We do NOT update the graph state with this result to save tokens.
-                        # We just 'continue' loop, effectively treating this turn as done.
-                        # However, we DO need to move the graph past the interrupt.
-                        # We can inject a placeholder ToolMessage or just a dummy HumanMessage 
-                        # saying "Execution done" so the graph is ready for next input?
-                        # ACTUALLY: The graph is paused at 'human_approval'. 
-                        # If we don't update state, it stays paused. 
-                        # We must resume it.
-                        # We can send a special signal or just a dummy "Done" message to get it to END.
-                        
-                        # Simplest way: Inject a "HumanMessage" saying "Done", and ensuring our graph logic handles it.
-                        # Or, since we want to be pure local, we can just leave the graph paused?
-                        # No, if we leave it paused, next time we come in `snapshot.next` will still be human_approval.
-                        # So we MUST resume the graph to clear the interrupt.
-                        
-                        # We will send a customized message that the agent (or graph logic) ignores/ends on.
-                        # Update graph state with a dummy message to clear the interrupt and move to END.
+                       
                         graph.update_state(config, {"messages": [HumanMessage(content="<SYSTEM: Execution Completed Locally>")]})
                         # IMPORTANT: Resume graph execution to process this message and reach END
                         list(graph.stream(None, config, stream_mode="values"))
                         
-                        # Process the event to reach END (our custom routing logic needs to handle this)
-                        # Actually, our `check_approval_outcome` routes HumanMessage back to Agent...
-                        # We need to update `check_approval_outcome` in agent.py to handle this special flag if strictly NO LLM is desired.
-                        
-                        # Alternative: Just let the user prompt "next query".
-                        # But wait, if I type "next query", it will be treated as feedback to the paused state.
-                        # So we DO need to close the loop.
-                        
-                        # Let's fix `agent.py` shortly to handle "<SYSTEM: ...>" to go to END.
-                        
+                                                
                     except Exception as e:
                         print(f"\nError executing query: {e}")
 

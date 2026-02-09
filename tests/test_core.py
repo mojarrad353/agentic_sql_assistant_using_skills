@@ -3,9 +3,9 @@ from src.sql_assistant.config import Settings
 from src.sql_assistant.skills.repository import SkillRepository
 
 def test_settings_loading():
-    settings = Settings(OPENAI_API_KEY="test-key", OPENAI_MODEL_NAME="gpt-4-test")
+    settings = Settings(OPENAI_API_KEY="test-key", OPENAI_MODEL_NAME="gpt-5-mini-test")
     assert settings.OPENAI_API_KEY == "test-key"
-    assert settings.OPENAI_MODEL_NAME == "gpt-4-test"
+    assert settings.OPENAI_MODEL_NAME == "gpt-5-mini-test"
     assert settings.LANGSMITH_TRACING is True  # Default
 
 def test_skill_repository_file_based():
