@@ -70,8 +70,8 @@ This project is managed with `uv`.
    LANGSMITH_PROJECT=sql-assistant-skills
 
    # PostgreSQL
-   POSTGRES_USER=postgres
-   POSTGRES_PASSWORD=postgres
+   POSTGRES_USER=
+   POSTGRES_PASSWORD=
    POSTGRES_DB=business
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
