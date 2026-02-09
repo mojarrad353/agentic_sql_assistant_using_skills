@@ -1,0 +1,21 @@
+[project]
+name = "agentic-sql-assistant-using-skills"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain",
+    "langchain-openai",
+    "langgraph",
+    "pydantic-settings",
+    "python-dotenv",
+    "langsmith",
+    "faker",
+    "fastapi",
+    "uvicorn",
+    "psycopg2-binary",
+    "langgraph-checkpoint-postgres>=3.0.4",
+    "psycopg-pool>=3.3.0",
+    "psycopg[binary]>=3.3.2",
+]

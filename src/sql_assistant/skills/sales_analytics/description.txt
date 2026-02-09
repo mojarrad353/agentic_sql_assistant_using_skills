@@ -1,0 +1,1 @@
+Database schema and business logic for sales data analysis including customers, orders, and revenue.
