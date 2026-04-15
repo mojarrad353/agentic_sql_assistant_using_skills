@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from functools import lru_cache
 
 class Settings(BaseSettings):
@@ -13,6 +14,13 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING: bool = True
     LANGSMITH_API_KEY: str | None = None
     LANGSMITH_PROJECT: str = "sql-assistant-skills"
+
+    @field_validator("LANGSMITH_TRACING", mode="before")
+    @classmethod
+    def parse_tracing(cls, v):
+        if isinstance(v, str) and v.strip() == "":
+            return False
+        return v
 
     # PostgreSQL
     # PostgreSQL

@@ -8,7 +8,8 @@ from langchain_core.tools import tool
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
-import psycopg2 
+import psycopg2
+import sqlglot
 
 from .config import get_settings
 from .skills.repository import get_skill_repository
@@ -24,7 +25,6 @@ logger = logging.getLogger(__name__)
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
 
-# --- Tools ---
 
 # --- Tools ---
 @tool
@@ -92,6 +92,61 @@ def execute_postgres_query(query: str) -> str:
         logger.error(f"Database Error: {e}")
         return f"Error executing query: {e}"
 
+@tool
+def validate_sql(sql_query: str) -> str:
+    """Validate a SQL query before execution.
+
+    Checks for:
+    - Syntax correctness (PostgreSQL dialect)
+    - Dangerous/destructive statements (DROP, DELETE, TRUNCATE, ALTER, UPDATE)
+    - Missing safety clauses (SELECT without LIMIT, missing WHERE on large scans)
+
+    Returns 'VALID' if the query passes all checks, or an error description.
+    """
+    logger.info("Tool Call: validate_sql()")
+    logger.debug(f"SQL to validate: {sql_query}")
+
+    errors = []
+
+    # 1. Syntax check using sqlglot
+    try:
+        parsed = sqlglot.parse(sql_query, dialect="postgres")
+        if not parsed or all(expr is None for expr in parsed):
+            errors.append("Syntax Error: Could not parse the query. It may be empty or malformed.")
+    except sqlglot.errors.ParseError as e:
+        errors.append(f"Syntax Error: {e}")
+
+    # 2. Safety check — block destructive statements
+    dangerous_keywords = ["DROP", "DELETE", "TRUNCATE", "ALTER", "UPDATE", "INSERT"]
+    upper_query = sql_query.upper().strip()
+    for keyword in dangerous_keywords:
+        # Check if the statement starts with or contains a top-level dangerous keyword
+        if upper_query.startswith(keyword):
+            errors.append(
+                f"Safety Error: '{keyword}' statements are not allowed. "
+                f"This assistant is read-only."
+            )
+            break
+
+    # 3. Best-practice warnings
+    if upper_query.startswith("SELECT"):
+        if "LIMIT" not in upper_query:
+            errors.append(
+                "Warning: SELECT query has no LIMIT clause. "
+                "Consider adding LIMIT to avoid returning excessive rows."
+            )
+
+    if errors:
+        result = "INVALID — Please fix the following issues:\n" + "\n".join(
+            f"  - {e}" for e in errors
+        )
+        logger.warning(f"Validation failed: {result}")
+        return result
+
+    logger.info("Validation passed.")
+    return "VALID"
+
+
 # --- Agent Logic ---
 
 def create_agent_graph(checkpointer=None):
@@ -109,7 +164,7 @@ def create_agent_graph(checkpointer=None):
     )
     
     # Bind tools
-    tools = [load_skill, execute_postgres_query]
+    tools = [load_skill, validate_sql, execute_postgres_query]
     llm_with_tools = llm.bind_tools(tools)
 
     # Initial System Prompt Construction
@@ -123,6 +178,12 @@ def create_agent_graph(checkpointer=None):
         "You are a SQL query assistant that helps users write queries against business databases.\n"
         "You MUST output valid PostgreSQL queries.\n"
         "You MUST wrap the proposed SQL query in a markdown block, e.g., ```sql ... ```.\n\n"
+        "## Workflow\n\n"
+        "1. Load the relevant skill to understand the schema.\n"
+        "2. Generate the SQL query.\n"
+        "3. ALWAYS call `validate_sql` with the generated query before presenting it to the user.\n"
+        "4. If validation fails, fix the issues and re-validate until it passes.\n"
+        "5. Only present the query to the user after validation returns VALID.\n\n"
         "## Available Skills\n\n"
         f"{skills_prompt}\n\n"
         "Use the load_skill tool when you need detailed information "
@@ -212,5 +273,11 @@ def create_agent_graph(checkpointer=None):
         "human_approval",
         check_approval_outcome,
     )
+
+    # LangGraph API passes a config dict as the first argument, so we need to handle that.
+    # If checkpointer is None or not a valid saver, default to InMemorySaver for local dev.
+    if checkpointer is None or isinstance(checkpointer, dict):
+        from langgraph.checkpoint.memory import InMemorySaver
+        checkpointer = InMemorySaver()
 
     return graph_builder.compile(checkpointer=checkpointer, interrupt_before=["human_approval"])

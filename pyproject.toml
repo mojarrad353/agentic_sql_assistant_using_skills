@@ -18,4 +18,5 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.4",
     "psycopg-pool>=3.3.0",
     "psycopg[binary]>=3.3.2",
+    "sqlglot",
 ]
