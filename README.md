@@ -17,11 +17,12 @@ A production-grade, agentic SQL assistant built with **LangGraph** and **LangCha
 
 - **Dual Execution Modes**: Choose between **Automatic** (instant results) or **Human-in-the-Loop** (review before execution) for safety and control.
 - **Agentic Architecture**: Powered by [LangGraph](https://langchain-ai.github.io/langgraph/), enabling cyclic reasoning and state management.
+- **Automated SQL Validation**: Queries are validated for syntax correctness, safety rules (blocking DROP/DELETE), and best practices before ever reaching execution.
 - **Progressive Skill Loading**: Minimizes context usage by only loading relevant schemas (e.g., Sales, Inventory) when explicitly requested by the agent.
 - **File-Based Skills System**: Add new skills by creating local folders—no code changes required.
 - **Production Performance**: Implements **Database Connection Pooling** for efficient resource management.
-- **Observability**: Built-in logging and integration with [LangSmith](https://smith.langchain.com/) for deep tracing.
-- **Container Readiness**: Fully Dockerized for seamless deployment.
+- **Advanced Observability**: Built-in structured JSON logging with `structlog`, Prometheus metrics, auto-provisioned Grafana dashboards, and LangSmith deep tracing.
+- **Container Readiness**: Fully Dockerized for seamless deployment including observability stack.
 
 ## 📂 Project Structure
 
@@ -32,6 +33,8 @@ src/sql_assistant/
 ├── database.py        # DB Connection Pooling logic
 ├── config.py          # Configuration & environment variables
 ├── main.py            # CLI entry point
+├── metrics.py         # Prometheus metrics tracking
+├── logging_config.py  # Structured JSON logging setup
 └── skills/            # Skills Repository
     ├── repository.py  # Logic to load skills from disk
     ├── sales_analytics/
@@ -45,7 +48,10 @@ web-app/               # React Frontend (Vite)
 └── ...
 Dockerfile.api         # Backend container definition
 web-app/Dockerfile.web # Frontend container definition
-docker-compose.yml     # Multi-service orchestration
+docker-compose.yml     # Multi-service orchestration (API, Web, DB, Prometheus, Grafana, Loki, Promtail)
+prometheus.yml         # Prometheus configuration
+promtail-config.yml    # Promtail Docker log scraping configuration
+grafana/               # Grafana provisioning rules
 ```
 
 ## 🛠️ Setup
@@ -119,6 +125,26 @@ You can extend the agent's knowledge without writing Python code.
 
 The agent will automatically discover the new skill on the next restart.
 
+## 📊 Observability & Metrics
+
+The system ships with advanced internal observability out-of-the-box:
+
+- **Prometheus**: Automatically scrapes metrics from the API every 15s. Tracks variables such as LLM invocation counts, query execution times, validation failure rates, and auto-execution errors.
+   - Access at: **http://localhost:9090**
+   - **Available Metrics**:
+     - `sql_assistant_tool_calls_total` (Count of tool invocations)
+     - `sql_assistant_tool_duration_seconds` (Latency per tool call)
+     - `sql_assistant_validation_results_total` (Validation pass/fail rate)
+     - `sql_assistant_query_execution_duration_seconds` (DB query execution time)
+     - `sql_assistant_query_rows_returned` (Distribution of result set sizes)
+     - `sql_assistant_llm_calls_total` (LLM invocation count)
+     - `sql_assistant_requests_total` (HTTP request count)
+     - `sql_assistant_request_duration_seconds` (HTTP request latency)
+     - `sql_assistant_approval_decisions_total` (Human approval tracking)
+- **Grafana**: A visualization layer provisioned directly with the Prometheus and Loki instances. 
+   - Access at: **http://localhost:3000** (Default Login: `admin` / `admin`)
+- **Structured Logging (Loki & Promtail)**: Uses `structlog` for application logs mapped neatly into JSON objects. **Promtail** scrapes Docker container stdout logs and ships them to **Loki**, which is auto-provisioned in Grafana.
+   - To query JSON logs, go to **Grafana → Explore**, select **Loki**, and use a LogQL query (e.g., `{container=~".*api.*"} | json | event="http_request" | duration_s > 0.5`).
 ## 🧪 Testing
 ```bash
 uv run pytest

@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from .agent import create_agent_graph
 from .config import get_settings
+from .logging_config import configure_logging
 
 def print_message_verbose(message):
     """Prints a message in a verbose format matching the user request."""
@@ -45,6 +46,7 @@ import psycopg2
 
 def run_interactive_session():
     """Runs an interactive session with the agent."""
+    configure_logging()
     print("Initializing SQL Assistant...")
     settings = get_settings()
     

@@ -1,11 +1,11 @@
-import logging
 import psycopg2
 from psycopg2 import pool
 from contextlib import contextmanager
 
 from .config import get_settings
+from .logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DatabasePool:
     _instance = None
@@ -16,7 +16,7 @@ class DatabasePool:
         if cls._pool is None:
             try:
                 settings = get_settings()
-                logger.info("Initializing Database Connection Pool...")
+                logger.info("database_pool_initializing")
                 cls._pool = psycopg2.pool.ThreadedConnectionPool(
                     minconn=1,
                     maxconn=20,
@@ -26,9 +26,9 @@ class DatabasePool:
                     password=settings.POSTGRES_PASSWORD,
                     port=settings.POSTGRES_PORT
                 )
-                logger.info("Database Connection Pool Initialized.")
+                logger.info("database_pool_initialized")
             except Exception as e:
-                logger.critical(f"Failed to initialize database pool: {e}")
+                logger.critical("database_pool_init_failed", error=str(e))
                 raise
 
     @classmethod
@@ -41,7 +41,7 @@ class DatabasePool:
     def close_all(cls):
         if cls._pool:
             cls._pool.closeall()
-            logger.info("Database Connection Pool Closed.")
+            logger.info("database_pool_closed")
 
 @contextmanager
 def get_db_connection():

@@ -1,13 +1,14 @@
-import logging
 import os
+import time
 import uuid
 import re
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -15,18 +16,24 @@ from langgraph.checkpoint.memory import MemorySaver
 from .agent import create_agent_graph
 from .config import get_settings
 from .database import get_db_connection, DatabasePool
-
-# Configure Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+from .logging_config import configure_logging, get_logger
+from .metrics import (
+    REQUESTS_TOTAL,
+    REQUEST_DURATION_SECONDS,
+    APPROVAL_DECISIONS_TOTAL,
+    QUERY_EXECUTION_DURATION_SECONDS,
+    QUERY_ROWS_RETURNED,
 )
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle: DB Pool, Checkpointer, Env Vars."""
-    logger.info("Starting SQL Assistant API (In-Memory Persistence)...")
+    # Configure structured logging once at startup
+    configure_logging()
+    
+    logger.info("api_starting")
     
     # 1. Environment Setup (LangSmith)
     settings = get_settings()
@@ -43,15 +50,15 @@ async def lifespan(app: FastAPI):
     try:
         checkpointer = MemorySaver()
         app.state.graph = create_agent_graph(checkpointer=checkpointer)
-        logger.info("Graph initialized with In-Memory Persistence.")
+        logger.info("graph_initialized", persistence="in_memory")
         yield
     except Exception as e:
-        logger.critical(f"Failed to initialize Graph: {e}")
+        logger.critical("graph_init_failed", error=str(e))
         raise
     finally:
         # Cleanup
         DatabasePool.close_all()
-        logger.info("Shutdown complete.")
+        logger.info("api_shutdown_complete")
 
 app = FastAPI(title="SQL Assistant API", lifespan=lifespan)
 
@@ -62,6 +69,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Prometheus Metrics Middleware ---
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Record HTTP request count and latency for every endpoint."""
+    # Skip the /metrics endpoint itself to avoid self-referential noise
+    if request.url.path == "/metrics":
+        return await call_next(request)
+    
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+    
+    endpoint = request.url.path
+    method = request.method
+    status_code = str(response.status_code)
+    
+    REQUESTS_TOTAL.labels(endpoint=endpoint, method=method, status_code=status_code).inc()
+    REQUEST_DURATION_SECONDS.labels(endpoint=endpoint, method=method).observe(duration)
+    
+    logger.info("http_request",
+                endpoint=endpoint,
+                method=method,
+                status_code=status_code,
+                duration_s=round(duration, 3))
+    
+    return response
+
+# --- Prometheus Metrics Endpoint ---
+
+@app.get("/metrics")
+async def metrics():
+    """Expose Prometheus metrics for scraping."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # --- Models ---
 
@@ -88,12 +130,16 @@ class ChatResponse(BaseModel):
 def execute_query_locally(query: str):
     """Executes a SQL query against the configured database using the pool."""
     try:
-        logger.info(f"Executing SQL Query (Local): {query}")
+        logger.info("local_query_executing", query_length=len(query))
         
         # Use the context manager from database.py which handles getting/returning connection
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            query_start = time.time()
             cursor.execute(query)
+            query_duration = time.time() - query_start
+            QUERY_EXECUTION_DURATION_SECONDS.labels(source="local_api").observe(query_duration)
             
             if cursor.description:
                 columns = [col.name for col in cursor.description]
@@ -103,6 +149,9 @@ def execute_query_locally(query: str):
                 results = []
             
             conn.commit()
+        
+        row_count = len(results)
+        QUERY_ROWS_RETURNED.observe(row_count)
         
         # Format Output
         if not results:
@@ -124,11 +173,12 @@ def execute_query_locally(query: str):
                 "rows": results
             }
         
-        logger.info(f"Query executed successfully. Rows returned: {len(results)}")
+        logger.info("local_query_executed", rows=row_count,
+                     query_duration_s=round(query_duration, 3))
         return result_text, structured_data, None
 
     except Exception as e:
-        logger.error(f"Database Execution Error: {e}")
+        logger.error("local_query_error", error=str(e))
         return f"Error executing query: {str(e)}", None, str(e)
 
 def process_run(graph, thread_id, inputs, config):
@@ -161,14 +211,15 @@ def process_run(graph, thread_id, inputs, config):
             status=status
         )
     except Exception as e:
-        logger.error(f"Error in process_run: {e}", exc_info=True)
+        logger.error("process_run_error", error=str(e), exc_info=True)
         raise
 
 # --- Endpoints ---
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, api_request: Request):
-    logger.info(f"Received chat request: {request.message} (Thread: {request.thread_id}, Auto: {request.auto_execute})")
+    logger.info("chat_request_received", message_length=len(request.message),
+                thread_id=request.thread_id, auto_execute=request.auto_execute)
     
     thread_id = request.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
@@ -196,13 +247,13 @@ async def chat(request: ChatRequest, api_request: Request):
             else:
                 query = content.strip() # Fallback
             
-            logger.info(f"Auto-executing query for thread {thread_id}: {query}")
+            logger.info("auto_execute_start", thread_id=thread_id, query_length=len(query))
             
             # Execute
             result_text, structured_data, error = execute_query_locally(query)
             
             if error:
-                 logger.warning(f"Auto-execution failed for thread {thread_id}: {error}")
+                 logger.warning("auto_execute_failed", thread_id=thread_id, error=error)
                  return ChatResponse(
                     thread_id=thread_id,
                     response=f"Error executing query (Auto-Mode): {error}",
@@ -223,7 +274,7 @@ async def chat(request: ChatRequest, api_request: Request):
                 query=query
             )
         except Exception as e:
-            logger.critical(f"Auto-execute system error: {e}", exc_info=True)
+            logger.critical("auto_execute_system_error", error=str(e), exc_info=True)
             return ChatResponse(
                 thread_id=thread_id,
                 response=f"System Error during auto-execution: {str(e)}",
@@ -234,7 +285,7 @@ async def chat(request: ChatRequest, api_request: Request):
 
 @app.post("/approval", response_model=ChatResponse)
 async def approval(request: ApprovalRequest, api_request: Request):
-    logger.info(f"Received approval decision: {request.decision} (Thread: {request.thread_id})")
+    logger.info("approval_received", decision=request.decision, thread_id=request.thread_id)
     
     graph = api_request.app.state.graph
     config = {"configurable": {"thread_id": request.thread_id}}
@@ -244,6 +295,8 @@ async def approval(request: ApprovalRequest, api_request: Request):
         raise HTTPException(status_code=400, detail="Conversation is not waiting for approval.")
 
     if request.decision == "approve":
+        APPROVAL_DECISIONS_TOTAL.labels(decision="approve").inc()
+        
         # 1. Get last message content
         last_msg = snapshot.values["messages"][-1]
         content = last_msg.content
@@ -280,8 +333,11 @@ async def approval(request: ApprovalRequest, api_request: Request):
         )
 
     else:
+        APPROVAL_DECISIONS_TOTAL.labels(decision="reject").inc()
+        
         # Rejection
         feedback = request.feedback or "Rejected."
+        logger.info("approval_rejected", thread_id=request.thread_id, feedback=feedback)
         graph.update_state(config, {"messages": [HumanMessage(content=f"Rejected. Feedback: {feedback}")]})
         return process_run(graph, request.thread_id, None, config)
 

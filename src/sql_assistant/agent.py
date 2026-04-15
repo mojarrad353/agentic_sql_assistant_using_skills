@@ -1,6 +1,6 @@
 import operator
+import time
 from typing import Annotated, Sequence, TypedDict, Union, List
-import logging
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -13,13 +13,17 @@ import sqlglot
 
 from .config import get_settings
 from .skills.repository import get_skill_repository
-
-# Configure Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+from .logging_config import get_logger
+from .metrics import (
+    TOOL_CALLS_TOTAL,
+    TOOL_DURATION_SECONDS,
+    VALIDATION_RESULTS_TOTAL,
+    QUERY_EXECUTION_DURATION_SECONDS,
+    QUERY_ROWS_RETURNED,
+    LLM_CALLS_TOTAL,
 )
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 # Type definition for the agent state
 class AgentState(TypedDict):
@@ -30,18 +34,27 @@ class AgentState(TypedDict):
 @tool
 def load_skill(skill_name: str) -> str:
     """Load the full content (schema, rules) of a specific skill."""
-    logger.info(f"Tool Call: load_skill({skill_name})")
+    logger.info("tool_called", tool="load_skill", skill_name=skill_name)
+    start = time.time()
     try:
         repo = get_skill_repository()
         skill = repo.get_skill(skill_name)
         
         if skill and skill.get("content"):
+            duration = time.time() - start
+            TOOL_CALLS_TOTAL.labels(tool_name="load_skill", status="success").inc()
+            TOOL_DURATION_SECONDS.labels(tool_name="load_skill").observe(duration)
+            logger.info("tool_completed", tool="load_skill", skill_name=skill_name, duration_s=round(duration, 3))
             return skill["content"]
             
-        logger.warning(f"Skill not found or empty: {skill_name}")
+        logger.warning("skill_not_found", skill_name=skill_name)
+        TOOL_CALLS_TOTAL.labels(tool_name="load_skill", status="error").inc()
+        TOOL_DURATION_SECONDS.labels(tool_name="load_skill").observe(time.time() - start)
         return f"Skill '{skill_name}' not found."
     except Exception as e:
-        logger.error(f"Error loading skill {skill_name}: {e}")
+        TOOL_CALLS_TOTAL.labels(tool_name="load_skill", status="error").inc()
+        TOOL_DURATION_SECONDS.labels(tool_name="load_skill").observe(time.time() - start)
+        logger.error("tool_error", tool="load_skill", error=str(e))
         return f"Error loading skill: {e}"
 
 @tool
@@ -50,8 +63,8 @@ def execute_postgres_query(query: str) -> str:
     
     Returns the result as a formatted string table or an error message.
     """
-    logger.info(f"Tool Call: execute_postgres_query()")
-    logger.debug(f"Query: {query}")
+    logger.info("tool_called", tool="execute_postgres_query", query_length=len(query))
+    start = time.time()
     # settings = get_settings() # Handled by database.py
     
     from .database import get_db_connection # Lazy import to avoid circular deps if any
@@ -59,7 +72,11 @@ def execute_postgres_query(query: str) -> str:
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            
+            query_start = time.time()
             cursor.execute(query)
+            query_duration = time.time() - query_start
+            QUERY_EXECUTION_DURATION_SECONDS.labels(source="agent_tool").observe(query_duration)
             
             if cursor.description:
                 columns = [col.name for col in cursor.description]
@@ -71,8 +88,14 @@ def execute_postgres_query(query: str) -> str:
             conn.commit()
             # conn closes automatically by context manager (returned to pool)
         
+        row_count = len(results)
+        QUERY_ROWS_RETURNED.observe(row_count)
+        
         if not results:
-            logger.info("Query returned no results.")
+            duration = time.time() - start
+            TOOL_CALLS_TOTAL.labels(tool_name="execute_postgres_query", status="success").inc()
+            TOOL_DURATION_SECONDS.labels(tool_name="execute_postgres_query").observe(duration)
+            logger.info("query_no_results", duration_s=round(duration, 3), query_duration_s=round(query_duration, 3))
             return "Query executed successfully per row count: 0"
             
         # Format as simple markdown table for LLM readability
@@ -85,11 +108,16 @@ def execute_postgres_query(query: str) -> str:
         if len(results) > 10:
             rows.append(f"... ({len(results) - 10} more rows)")
             
-        logger.info(f"Query executed successfully. Rows: {len(results)}")
+        duration = time.time() - start
+        TOOL_CALLS_TOTAL.labels(tool_name="execute_postgres_query", status="success").inc()
+        TOOL_DURATION_SECONDS.labels(tool_name="execute_postgres_query").observe(duration)
+        logger.info("query_executed", rows=row_count, duration_s=round(duration, 3), query_duration_s=round(query_duration, 3))
         return "\n".join([header, separator] + rows)
 
     except Exception as e:
-        logger.error(f"Database Error: {e}")
+        TOOL_CALLS_TOTAL.labels(tool_name="execute_postgres_query", status="error").inc()
+        TOOL_DURATION_SECONDS.labels(tool_name="execute_postgres_query").observe(time.time() - start)
+        logger.error("tool_error", tool="execute_postgres_query", error=str(e))
         return f"Error executing query: {e}"
 
 @tool
@@ -103,8 +131,8 @@ def validate_sql(sql_query: str) -> str:
 
     Returns 'VALID' if the query passes all checks, or an error description.
     """
-    logger.info("Tool Call: validate_sql()")
-    logger.debug(f"SQL to validate: {sql_query}")
+    logger.info("tool_called", tool="validate_sql", query_length=len(sql_query))
+    start = time.time()
 
     errors = []
 
@@ -136,14 +164,20 @@ def validate_sql(sql_query: str) -> str:
                 "Consider adding LIMIT to avoid returning excessive rows."
             )
 
+    duration = time.time() - start
+    TOOL_CALLS_TOTAL.labels(tool_name="validate_sql", status="success").inc()
+    TOOL_DURATION_SECONDS.labels(tool_name="validate_sql").observe(duration)
+
     if errors:
         result = "INVALID — Please fix the following issues:\n" + "\n".join(
             f"  - {e}" for e in errors
         )
-        logger.warning(f"Validation failed: {result}")
+        VALIDATION_RESULTS_TOTAL.labels(result="invalid").inc()
+        logger.warning("validation_failed", issues=errors, duration_s=round(duration, 3))
         return result
 
-    logger.info("Validation passed.")
+    VALIDATION_RESULTS_TOTAL.labels(result="valid").inc()
+    logger.info("validation_passed", duration_s=round(duration, 3))
     return "VALID"
 
 
@@ -195,8 +229,16 @@ def create_agent_graph(checkpointer=None):
     def agent_node(state: AgentState):
         messages = state["messages"]
         
+        LLM_CALLS_TOTAL.labels(node="agent").inc()
+        logger.info("llm_call_start", node="agent", message_count=len(messages))
+        start = time.time()
+        
         # Construct the call explicitly
         response = llm_with_tools.invoke([SystemMessage(content=system_prompt)] + messages)
+        
+        duration = time.time() - start
+        logger.info("llm_call_complete", node="agent", duration_s=round(duration, 3),
+                     has_tool_calls=bool(response.tool_calls) if hasattr(response, 'tool_calls') else False)
         return {"messages": [response]}
 
 # Node: Human Approval (Pass-through)

@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "."
+    ],
+    "graphs": {
+        "sql_agent": "src.sql_assistant.agent:create_agent_graph"
+    },
+    "env": ".env"
+}
