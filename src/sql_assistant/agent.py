@@ -307,7 +307,7 @@ def create_agent_graph(checkpointer=None):
         
         if isinstance(last_message, HumanMessage):
             # Check for special system flag to end conversation silently
-            if last_message.content.startswith("<SYSTEM:"):
+            if isinstance(last_message.content, str) and last_message.content.startswith("<SYSTEM:"):
                 return END
             return "agent"
         return END

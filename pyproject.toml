@@ -26,6 +26,7 @@ dependencies = [
 dev = [
     "pylint>=3.0",
     "mypy>=1.0",
+    "types-psycopg2",
 ]
 
 [tool.pylint."MESSAGES CONTROL"]

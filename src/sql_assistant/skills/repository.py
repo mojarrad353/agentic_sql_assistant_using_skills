@@ -26,11 +26,12 @@ class SkillRepository:
                 description_path = item / "description.txt"
                 if description_path.exists():
                     description = description_path.read_text(encoding="utf-8").strip()
-                    skills.append({
+                    skill_dict: Skill = {
                         "name": item.name,
                         "description": description,
-                        "content": ""  # Don't load full content yet
-                    })
+                        "content": ""  
+                    }
+                    skills.append(skill_dict)
         return skills
 
     def get_skill(self, skill_name: str) -> Skill | None:
