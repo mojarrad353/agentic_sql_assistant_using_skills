@@ -22,3 +22,20 @@ dependencies = [
     "structlog",
     "prometheus-client",
 ]
+[dependency-groups]
+dev = [
+    "pylint>=3.0",
+    "mypy>=1.0",
+]
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = [
+    "missing-docstring",
+    "line-too-long",
+    "trailing-whitespace",
+    "bad-indentation",
+    "broad-exception-caught",
+    "duplicate-code",
+    "unused-variable",
+    "redefined-outer-name"
+]

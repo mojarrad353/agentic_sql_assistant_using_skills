@@ -17,7 +17,7 @@ class DatabasePool:
             try:
                 settings = get_settings()
                 logger.info("database_pool_initializing")
-                cls._pool = psycopg2.pool.ThreadedConnectionPool(
+                cls._pool = pool.ThreadedConnectionPool(
                     minconn=1,
                     maxconn=20,
                     host=settings.POSTGRES_HOST,

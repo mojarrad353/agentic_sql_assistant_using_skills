@@ -1,5 +1,4 @@
 from typing import TypedDict
-import os
 from pathlib import Path
 
 class Skill(TypedDict):

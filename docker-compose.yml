@@ -34,6 +34,10 @@ services:
       - LANGSMITH_TRACING=${LANGSMITH_TRACING}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT}
+      - PROMETHEUS_DISABLE_CREATED_SERIES=true
+    volumes:
+      - ./src:/app/src
+    command: ["uv", "run", "uvicorn", "src.sql_assistant.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       db:
         condition: service_healthy
@@ -79,6 +83,8 @@ services:
     ports:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
     restart: always
 
   promtail:
@@ -96,3 +102,4 @@ volumes:
   postgres_data:
   prometheus_data:
   grafana_data:
+  loki_data:
