@@ -213,6 +213,7 @@ def create_agent_graph(checkpointer=None):
         "You MUST output valid PostgreSQL queries.\n"
         "You MUST ALWAYS include a `LIMIT` clause in your SELECT queries (default to 10 if not specified) to prevent excessive data retrieval.\n"
         "You MUST wrap the proposed SQL query in a markdown block, e.g., ```sql ... ```.\n\n"
+        "If the user's request is ambiguous or you need more information to write the query (like which schema to use), ask the user a clarifying question. Do NOT output any SQL blocks when asking a question.\n\n"
         "## Workflow\n\n"
         "1. Load the relevant skill to understand the schema.\n"
         "2. Generate the SQL query.\n"
@@ -274,8 +275,14 @@ def create_agent_graph(checkpointer=None):
             if isinstance(second_last, ToolMessage) and second_last.name == "execute_postgres_query":
                 return END
 
+        # CONVERSATIONAL CHECK: Does the message contain a proposed SQL block?
+        content = getattr(last_message, "content", "")
+        if isinstance(content, str):
+            if "```sql" in content or "```" in content:
+                return "human_approval"
+
         # Otherwise, go to human approval
-        return "human_approval"
+        return END
 
     graph_builder.add_conditional_edges(
         "agent",

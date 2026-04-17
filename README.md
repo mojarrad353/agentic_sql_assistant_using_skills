@@ -15,8 +15,7 @@ A production-grade, agentic SQL assistant built with **LangGraph** and **LangCha
 
 ## 🚀 Key Features
 
-- **Dual Execution Modes**: Choose between **Automatic** (instant results) or **Human-in-the-Loop** (review before execution) for safety and control.
-- **Agentic Architecture**: Powered by [LangGraph](https://langchain-ai.github.io/langgraph/), enabling cyclic reasoning and state management.
+- **Multi-turn Conversational AI**: The agent can engage in back-and-forth dialogue to clarify requirements or schemas before committing to a SQL query.
 - **Automated SQL Validation**: Queries are validated for syntax correctness, safety rules (blocking DROP/DELETE), and best practices before ever reaching execution.
 - **Progressive Skill Loading**: Minimizes context usage by only loading relevant schemas (e.g., Sales, Inventory) when explicitly requested by the agent.
 - **File-Based Skills System**: Add new skills by creating local folders—no code changes required.
@@ -145,10 +144,8 @@ The system ships with advanced internal observability out-of-the-box:
    - Access at: **http://localhost:3000** (Default Login: `admin` / `admin`)
 - **Structured Logging (Loki & Promtail)**: Uses `structlog` for application logs mapped neatly into JSON objects. **Promtail** scrapes Docker container stdout logs and ships them to **Loki**, which is auto-provisioned in Grafana.
    - To query JSON logs, go to **Grafana → Explore**, select **Loki**, and use a LogQL query (e.g., `{container=~".*api.*"} | json | event="http_request" | duration_s > 0.5`).
-## 🧪 Testing
-```bash
-uv run pytest
-```
+
+
 <img width="3838" height="1953" alt="Screenshot 2026-02-09 110412" src="https://github.com/user-attachments/assets/5c194137-b246-426e-9e5a-6505f6026b82" />
 <img width="3838" height="1937" alt="2" src="https://github.com/user-attachments/assets/f10e5da4-a062-4076-ab2e-2d85f838ae1c" />
 <img width="3836" height="1926" alt="3" src="https://github.com/user-attachments/assets/e0829643-ce8e-4045-a000-e50618cd3785" />
